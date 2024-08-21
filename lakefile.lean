@@ -8,9 +8,9 @@ package "segment-tree" where
   ]
   -- add any additional package configuration options here
 
--- require "leanprover-community" / "mathlib"
-require mathlib from
-  ".."/".."/".."/"git"/"mathlib4"
+require "leanprover-community" / "mathlib"
+/- require mathlib from -/
+/-   ".."/".."/".."/"git"/"mathlib4" -/
 
 
 
