@@ -67,16 +67,16 @@ namespace SegmentTree
   def range: SegmentTree α h → Range
   | _ => Range.mk 0 (2^h)
 
-  def update{h: Nat}(i: Nat)(val: α)(self: SegmentTree α h) : SegmentTree α h :=
-    if ! self.range.contains i then self else
+  def update{h: Nat}(i: Nat)(val: α)(self: SegmentTree α h)(offset: Nat := 0) : SegmentTree α h :=
+    let range := self.range.shift offset
+    if ! range.contains i then self else
     match self with
     | Leaf _ => Leaf val
     | Branch _ left right =>
-      let (new_left, new_right) := if i >= 2^(h-1) 
-        then (left.update i val, right)
-        else (left,              right.update (i-2^(h-1)) val)
+      let (new_left, new_right) := if i >= 2^(h-1) + offset
+        then (left,              right.update i val (offset + 2^(h-1)))
+        else (left.update i val offset, right)
       new_left.join new_right
- 
 
   def query{h: Nat}(r: Range)(self: SegmentTree α h)(offset: Nat := 0): α :=
     let actual_range := self.range.shift offset
@@ -87,10 +87,6 @@ namespace SegmentTree
       if inter == actual_range then acc
       else (left.query inter offset) + (right.query inter (offset + 2^(h-1)))
 
-  instance: Inhabited (SegmentTree α 0) where
-    default := Leaf 0
-  instance {rest: Inhabited (SegmentTree α h)}: Inhabited (SegmentTree α (h+1)) where
-    default := Branch 0 rest.default rest.default
   def left(t: SegmentTree α h): Option (SegmentTree α (h-1)) 
     :=  match t with
   | Branch _ left _ => .some left
@@ -101,7 +97,6 @@ namespace SegmentTree
   | _ => .none
 end SegmentTree
 
-
 namespace Examples
   open SegmentTree
   def small_tree: SegmentTree ℕ 2 :=
@@ -109,13 +104,28 @@ namespace Examples
 
   #eval do ((<- small_tree.right).range : Option Range)
   #eval small_tree.query $ Range.mk 0 1
-  #eval small_tree.query $ Range.mk 0 1
   #eval small_tree.query $ Range.mk 0 2
   #eval small_tree.query $ Range.mk 0 3
   #eval small_tree.query $ Range.mk 0 4
   #eval small_tree.query $ Range.mk 1 4
   #eval small_tree.query $ Range.mk 2 4
   #eval small_tree.query $ Range.mk 3 4
+
+  def updated_small_tree : SegmentTree ℕ 2 := small_tree
+    |>.update 0 5
+    |>.update 1 6
+    |>.update 2 7
+    |>.update 3 8
+
+  #eval updated_small_tree
+
+  #eval updated_small_tree.query $ Range.mk 0 1
+  #eval updated_small_tree.query $ Range.mk 0 2
+  #eval updated_small_tree.query $ Range.mk 0 3
+  #eval updated_small_tree.query $ Range.mk 0 4
+  #eval updated_small_tree.query $ Range.mk 1 4
+  #eval updated_small_tree.query $ Range.mk 2 4
+  #eval updated_small_tree.query $ Range.mk 3 4
     
 
   def big_tree: SegmentTree ℕ 4 :=
