@@ -8,165 +8,133 @@ import Batteries.Data.Vector.Basic
 import Mathlib.Data.Nat.Defs 
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.Ring
-open Batteries.Vector
+-- open Batteries.Vector
 
+inductive Range
+| mk(left right: Nat) -- inv: left <= right
+| Empty
+deriving Repr, BEq
 
-/--
-A SegmentTree is a balanced binary tree which holds
-elements of some Monoid α on its leaves. The root of
-a SegmentTree holds the aggregation of the elements
-of its leaves, and the left and right subtrees of 
-each branch are SegmentTrees themselves.
+namespace Range
+  def from_ends(a b: Nat): Range := 
+    if a < b then Range.mk a b 
+    else Empty
 
-A SegmentTree of an array of n elements is represented
-by an array of n elements, where the element at position
-0 is left unused, the element at position 1 is the root
-of the SegmentTree, and for each node i, the node at 
-position 2*i is its left child and the node at position
-2*i+1 is its right child.
+  def contains(r: Range)(x: Nat): Bool := match r with
+  | Empty => false
+  | Range.mk left right => left <= x && x < right
 
-In particular, this means that the i-th element of the
-original array is in the n+i position in the SegmentTree's
-array. (theorem)
-Furthermore, if the original array has length n, then the
-SegmentTree takes 2*n the same space. (theorem) This is
-actually only true if n is a power of 2, since otherwise
-the array is filled with the neutral element to fill up
-to the nearest power of two.
-- The idea is that, at each level of the 
+  def intersect: Range -> Range -> Range
+  | Empty, _ | _, Empty => Empty
+  | Range.mk a1 b1, Range.mk a2 b2 =>
+    Range.from_ends (a1.max a2) (b1.min b2)
 
--/
-structure SegmentTree(α : Type)(k: Nat)[Monoid α] where
-  v: Batteries.Vector α (2^k)
+  instance: OfNat Range n where
+    ofNat := Range.mk n (n+1)
+
+  def shift(n: Nat): Range -> Range
+  | Range.mk a b => Range.mk (a+n) (b+n)
+  | Empty => Empty
+  /- instance: HAdd ℕ Range Range where -/
+  /-   hAdd n -/ 
+  /-   | Range.mk a b => Range.mk (a+n) (b+n) -/
+  /-   | Empty => Empty -/
+  /- instance(sym: HAdd ℕ Range Range): HAdd Range ℕ Range where -/
+  /-   hAdd r n := sym.hAdd n r -/
+
+end Range
+
+inductive SegmentTree(α : Type)[AddMonoid α]:  Nat -> Type
+| Branch {h: Nat}(val: α)(left right: SegmentTree α h): SegmentTree α (h+1)
+-- inv: val = left.val + right.val
+| Leaf(val : α) : SegmentTree α 0
 deriving Repr
 
 namespace SegmentTree
-  inductive Range
-  | mk(left right: Nat)(inv: left <= right): Range
-  | Empty : Range
-  deriving Repr
+  variable{α: Type}[AddMonoid α]{h: Nat}
 
-  namespace Range 
-    def contains: Range → Nat → Bool
-    | Empty, _  => false
-    | .mk l r _, x => l <= x && x <= r
+  def is_branch: SegmentTree α h -> Bool
+  | Branch _ _ _ => true
+  | _ => false
 
-    @[simp]
-    def from_ends(l r: Nat): Range := 
-      if h: l <= r 
-      then .mk l r h 
-      else .Empty
+  def val: SegmentTree α h -> α
+  | Leaf val 
+  | Branch val _ _ => val
 
-    def intersect: Range → Range → Range
-    | Empty, _ 
-    | _, Empty => Empty
-    | .mk la ra _, .mk lb rb _ => 
-      let l := max la lb
-      let r := min ra rb
-      Range.from_ends l r
+  def join(left right: SegmentTree α h): SegmentTree α (h+1) :=
+    Branch (left.val + right.val) left right
+      
+  def range: SegmentTree α h → Range
+  | _ => Range.mk 0 (2^h)
 
-    #eval (Range.mk 3 7 (by simp)).intersect (Range.mk 2 4 (by simp))
+  def update{h: Nat}(i: Nat)(val: α)(self: SegmentTree α h) : SegmentTree α h :=
+    if ! self.range.contains i then self else
+    match self with
+    | Leaf _ => Leaf val
+    | Branch _ left right =>
+      let (new_left, new_right) := if i >= 2^(h-1) 
+        then (left.update i val, right)
+        else (left,              right.update (i-2^(h-1)) val)
+      new_left.join new_right
+ 
 
-    def size: Range -> Nat
-    | Empty => 0
-    | .mk l r _ => r - l + 1
+  def query{h: Nat}(r: Range)(self: SegmentTree α h)(offset: Nat := 0): α :=
+    let actual_range := self.range.shift offset
+    match self, r.intersect actual_range with
+    | _, Range.Empty => 0
+    | Leaf val, _ => val
+    | Branch acc left right, inter =>
+      if inter == actual_range then acc
+      else (left.query inter offset) + (right.query inter (offset + 2^(h-1)))
 
-    @[simp] 
-    def split: Range -> Range × Range
-    | Empty => (Empty, Empty)
-    | .mk l r _ =>
-      let mid := (l + r) / 2
-      let lhs := Range.from_ends l mid
-      let rhs := Range.from_ends (mid+1) r
-      (lhs, rhs)
-
-    def only_if(p q: Prop): Prop := q -> p
-    instance : Trans only_if only_if only_if where
-      trans := by
-        intros _ _ _ qp rq
-        exact qp ∘ rq
-
-    lemma lower_le_midpoint{a b: Nat}(a_le_b: a ≤ b): a ≤ (a+b)/2 := by
-      calc
-        a ≤ (2*a)/2 := by
-          rw [Nat.mul_div_cancel_left]
-          · simp
-        _ ≤ (a+a)/2 := by  
-          rw [Nat.two_mul]
-        _ ≤ (a+b)/2 := by
-          apply Nat.div_le_div_right
-          apply Nat.add_le_add_left
-          exact a_le_b
-
-    lemma midpoint_le_upper{a b: Nat}(a_le_b: a ≤ b): (a+b)/2 ≤ b := by
-      calc
-        (a+b)/2 ≤ (b + b)/2 := by
-          apply Nat.div_le_div_right
-          apply Nat.add_le_add_right
-          exact a_le_b
-        _ ≤ (2*b)/2 := by
-          rw [Nat.two_mul]
-        _ ≤ b := by  
-          rw [Nat.mul_div_cancel_left]
-          · simp
-
-    theorem split_preserves_size(r lhs rhs: Range)
-      (rel: r.split = (lhs, rhs)): r.size = lhs.size + rhs.size :=
-    by
-      match r with
-      | .Empty =>
-        simp at rel
-        rw [<- rel.right, <- rel.left]
-        unfold size; simp
-      | .mk a b a_le_b =>
-        simp at rel
-        have lhs_rel := rel.left 
-        have rhs_rel := rel.right
-        set mid := (a+b)/2
-        have a_le_mid: a ≤ mid := by 
-          apply lower_le_midpoint a_le_b
-        simp [lower_le_midpoint a_le_b] at lhs_rel
-        match Nat.decLe (mid + 1) b with
-        | Decidable.isTrue S_mid_le_b => 
-          simp [S_mid_le_b] at rhs_rel
-          rw [<- lhs_rel, <- rhs_rel]
-          unfold size; simp
-          simp [Nat.add_sub_cancel, Nat.add_assoc, Nat.add_comm, Nat.add_sub_assoc,
-                a_le_mid, S_mid_le_b, a_le_b]
-          rw [<- (Nat.add_sub_assoc a_le_mid)]
-          rw [<- (Nat.add_comm (1 + mid - a))]
-          rw [(Nat.add_comm 1 mid)]
-          rw [<- (Nat.add_sub_assoc S_mid_le_b)]
-          rw [<- (Nat.add_comm b)]
-          rw [<- (Nat.add_sub_assoc (Nat.le.step a_le_mid))]
-          rw [(Nat.add_comm b)]
-          rw [(Nat.add_sub_assoc a_le_b)]
-          rw [(Nat.add_comm mid.succ)]
-          rw [<- (Nat.add_one)]
-          rw [(Nat.add_sub_cancel)]
-          rw [(Nat.add_comm 1)]
-        | Decidable.isFalse nh => 
-          have h1: b ≤ mid := by
-            apply (Nat.gt_of_not_le) at nh
-            apply (GT.gt.lt) at nh
-            apply (Nat.le_of_lt_add_one) at nh
-            exact nh
-          have h2: mid ≤ b := by apply midpoint_le_upper a_le_b
-          have b_mid: b = mid := by
-            exact (Nat.le_antisymm h1 h2)
-          simp [nh] at rhs_rel
-          rw [<- lhs_rel, <- rhs_rel]
-          unfold size; simp
-          rw [<- b_mid]
-  end Range
-
-
-  variable(α: Type)(k: Nat)[Monoid α]
-
-  def update(i: Nat)(val: α)(self: SegmentTree α n): SegmentTree α n :=
-    let update_impl(r: Range)
-    self
-
-  def query(r: Range)(self: SegmentTree α): α
+  instance: Inhabited (SegmentTree α 0) where
+    default := Leaf 0
+  instance {rest: Inhabited (SegmentTree α h)}: Inhabited (SegmentTree α (h+1)) where
+    default := Branch 0 rest.default rest.default
+  def left(t: SegmentTree α h): Option (SegmentTree α (h-1)) 
+    :=  match t with
+  | Branch _ left _ => .some left
+  | _ => .none
+  def right(t: SegmentTree α h): Option (SegmentTree α (h-1)) 
+    :=  match t with
+  | Branch _ _ right => .some right
+  | _ => .none
 end SegmentTree
 
+
+namespace Examples
+  open SegmentTree
+  def small_tree: SegmentTree ℕ 2 :=
+     ((Leaf 1).join (Leaf 2)).join ((Leaf 3).join (Leaf 4))
+
+  #eval do ((<- small_tree.right).range : Option Range)
+  #eval small_tree.query $ Range.mk 0 1
+  #eval small_tree.query $ Range.mk 0 1
+  #eval small_tree.query $ Range.mk 0 2
+  #eval small_tree.query $ Range.mk 0 3
+  #eval small_tree.query $ Range.mk 0 4
+  #eval small_tree.query $ Range.mk 1 4
+  #eval small_tree.query $ Range.mk 2 4
+  #eval small_tree.query $ Range.mk 3 4
+    
+
+  def big_tree: SegmentTree ℕ 4 :=
+    ((((Leaf 0).join (Leaf 8)).join
+      ((Leaf 1).join (Leaf 9))).join
+     (((Leaf 2).join (Leaf 10)).join
+      ((Leaf 3).join (Leaf 11)))).join
+    ((((Leaf 4).join (Leaf 12)).join
+      ((Leaf 5).join (Leaf 13))).join
+     (((Leaf 6).join (Leaf 14)).join
+      ((Leaf 7).join (Leaf 15))))
+
+  #eval big_tree.query $ Range.mk 0 16
+  #eval big_tree.query $ Range.mk 1 15
+  #eval big_tree.query $ Range.mk 2 14
+  #eval big_tree.query $ Range.mk 3 13
+  #eval big_tree.query $ Range.mk 4 12
+  #eval big_tree.query $ Range.mk 5 11
+  #eval big_tree.query $ Range.mk 6 10
+  #eval big_tree.query $ Range.mk 7 9
+
+end Examples
