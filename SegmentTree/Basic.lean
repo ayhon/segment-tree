@@ -150,3 +150,32 @@ namespace Examples
 
 end Examples
 end TreeImpl
+
+
+  structure OffsetVector(α : Type)(r : Std.Range): Type where
+    data : Vector α r.stop
+
+  namespace OffsetVector
+    variable {α : Type}{r : Std.Range}
+
+    def transformIndex(r: Std.Range)(i : ℕ): Nat :=
+      r.start + r.step * i
+
+    def isValidIndex(_: OffsetVector α r)(i: Nat): Prop :=
+      let j := transformIndex r i 
+      j < r.stop
+
+    def toArray(a: OffsetVector α r): Array α := a.data.toArray
+
+    instance {α: Type}{r: Std.Range}: GetElem (OffsetVector α r) ℕ α isValidIndex where
+      getElem self i isValid :=
+        let j := transformIndex r i
+        have isValidForData : j < self.data.size := by
+          unfold OffsetVector.isValidIndex at isValid
+          simp only at isValid
+          unfold_let j
+          unfold Vector.size
+          exact isValid
+        self.data[j]'isValidForData
+
+    end OffsetVector
