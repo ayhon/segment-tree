@@ -8,12 +8,13 @@ import Batteries.Data.Vector.Basic
 import Mathlib.Data.Nat.Defs 
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.Ring
--- open Batteries.Vector
+import Mathlib.Algebra.Group.Basic
 
 inductive Range
 | mk(left right: Nat) -- inv: left <= right
 | Empty
 deriving Repr, BEq
+
 
 namespace Range
   def from_ends(a b: Nat): Range := 
@@ -44,11 +45,11 @@ namespace Range
 
 end Range
 
+namespace TreeImpl
 inductive SegmentTree(α : Type)[AddMonoid α]:  Nat -> Type
 | Branch {h: Nat}(val: α)(left right: SegmentTree α h): SegmentTree α (h+1)
 -- inv: val = left.val + right.val
-| Leaf(val : α) : SegmentTree α 0
-deriving Repr
+| Leaf(val : α) : SegmentTree α 0 deriving Repr
 
 namespace SegmentTree
   variable{α: Type}[AddMonoid α]{h: Nat}
@@ -148,3 +149,4 @@ namespace Examples
   #eval big_tree.query $ Range.mk 7 9
 
 end Examples
+end TreeImpl
