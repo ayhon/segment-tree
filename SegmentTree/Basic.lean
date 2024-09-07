@@ -152,6 +152,15 @@ end Examples
 end TreeImpl
 
 
+
+def Std.Range.size(r: Std.Range): Nat :=
+  if r.stop ≥ r.start then
+    (r.stop - r.start) / r.step
+  else
+    0
+
+  open Batteries
+
   structure OffsetVector(α : Type)(r : Std.Range): Type where
     data : Vector α r.stop
 
@@ -165,8 +174,6 @@ end TreeImpl
       let j := transformIndex r i 
       j < r.stop
 
-    def toArray(a: OffsetVector α r): Array α := a.data.toArray
-
     instance {α: Type}{r: Std.Range}: GetElem (OffsetVector α r) ℕ α isValidIndex where
       getElem self i isValid :=
         let j := transformIndex r i
@@ -177,5 +184,36 @@ end TreeImpl
           unfold Vector.size
           exact isValid
         self.data[j]'isValidForData
+
+    lemma under_size_then_valid_index(ov: OffsetVector α r)(i: Nat)
+    : r.step > 0
+    -> i < r.size 
+    -> ov.isValidIndex i
+    := by
+      intro step_ne_0 
+      unfold OffsetVector.isValidIndex
+      unfold OffsetVector.transformIndex
+      unfold Std.Range.size
+      simp only at *
+      intro i_le_size
+      split at i_le_size
+      case isTrue =>
+        have h₁ : i * r.step < (r.stop - r.start) / r.step * r.step := by
+          apply Nat.mul_lt_mul_of_pos_right <;> assumption -- Init.Data.Nat.Basic
+        have h₂ : i * r.step < r.stop - r.start := by
+          apply Nat.lt_of_lt_of_le h₁ (Nat.div_mul_le_self _ r.step)
+        rw [<-Nat.add_comm _ r.start, Nat.mul_comm]
+        exact Nat.add_lt_of_lt_sub h₂
+      case isFalse =>
+        omega
+
+    def toArray(a: OffsetVector α r){h₁: r.step > 0}: Array α :=
+      let indices := List.range r.size
+      let data := indices.attach.map fun ⟨i, i_is_index⟩ => 
+        have i_valid: a.isValidIndex i := by
+          apply under_size_then_valid_index a i h₁
+          exact List.mem_range.mp i_is_index
+        a[i]'i_valid
+      Array.mk data
 
     end OffsetVector
